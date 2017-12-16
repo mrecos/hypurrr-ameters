@@ -7,15 +7,19 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999) # disable scientific notation
 ```
+# Hypurrr-ameter Search with Purrr and Future
 
-I have had a thing lately with aggregating analyses into sequences of `purrr::map()` function calls and dense `tibbles`. If I see a loop - `map()` it. Have many outputs - well then put it in a `tibble`. Better yet, apply a sequence of functions over multiple model outputs, put them in a `tibble` and `map()` it! That is the basic approach I take here for modeling over a sequence of random hyperparameters; plus using `future` to do it in parallel. The idea for the code in this post came after an unsettled night of dreaming in the combinatoric magnitude of repeated K-folds CV over the hyperparameters for a multilayer perceptron. anyway...
+#### See executable notebook of this post at this [Github repo](https://github.com/mrecos/hypurrr-ameters)!
+
+I have had a thing lately with aggregating analyses into sequences of `purrr::map()` function calls and dense `tibbles`. If I see a loop - `map()` it. Have many outputs - well then put it in a `tibble`. Better yet, apply a sequence of functions over multiple model outputs, put them in a `tibble` and `map()` it! That is the basic approach I take here for modeling over a sequence of random hyperparameters (Hypurrr-ameters???); plus using `future` to do it in parallel. The idea for the code in this post came after an unsettled night of dreaming in the combinatoric magnitude of repeated K-folds CV over the hyperparameters for a multilayer perceptron. anyway...
 
 "Correlated Hyperparameters"" - Zoroaster Clavis Artis 1738 (inspired by @vboykis #devart)
 ![](https://upload.wikimedia.org/wikipedia/commons/c/c0/ClavisArtis.Ms-2-27.Hortis.V3.034.jpg)
 
 
-This post is based on the hyperparameter grid search example, but I am going to use it as a platform to go over some of the cool features of `purrr` that make it possible to put such an analysis in this `tibble` format.  By no means a primer on `purrr`, the text will hopefully make some connections between the ideas of `list-columns`, `purrr::map()` functions, and `purrr:nest()` to show off what I interpret as the Tidy-Purrr philosophy. The part about using `future` to parallelize this routine is presented towards the end.  If already know this stuff, then skip to the code examples at the end or see THIS REPO#%#%#%#%#.  However, if you are purrr-curious, give it a read and check out some of the amazing tutorials out in the wild.
+This post is based on the hyperparameter grid search example, but I am going to use it as a platform to go over some of the cool features of `purrr` that make it possible to put such an analysis in this `tibble` format.  Further, I hope this post gives people some examples that make the idea of `purrr` "click"; I know it took me some time to get there. By no means a primer on `purrr`, the text will hopefully make some connections between the ideas of `list-columns`, `purrr::map()` functions, and `purrr:nest()` to show off what I interpret as the Tidy-Purrr philosophy. The part about using `future` to parallelize this routine is presented towards the end.  If already know this stuff, then skip to the code examples at the end or see THIS REPO#%#%#%#%#.  However, if you are purrr-curious, give it a read and check out some of the amazing tutorials out in the wild.
 
 
 *   __Objective__: Demonstrate an approach to randomly searching over model hyperparameters in parallel storing the results in a tibble.
@@ -97,10 +101,15 @@ print(nest_example2)
 ```
 
 
-## Mapping over Hyperparameters
+## Mapping over Hypurrr-ameters
 
+THe basis for the experiment in hyperparameter search is a tibble with a series of rows representignn random draws. In this case we are interested in mapping over the hyperparameters of `ntree` and `mtry`. It really doesn't matter much what these names mean as this can be applied to any model & hyperparameters. Check here to learn more about random forest check out [this post](https://machinelearningmastery.com/tune-machine-learning-algorithms-in-r/). Suffice to say, these are two correlated settings of the randomforest algorithm that can have a big impact on performance. In order to build the basic table of hyperparameters to test over, we start a sequence of length `searches` and do random samples from sequences of `ntree` and `mtry`. The part of `ncol(data)-1` simpy returns the maximum number of predictor columns. See below code resulting in five rows of randomly selected pairs of `mtry` and `ntree`.
 
-show base table, then quickly go through maps.
+```{r packages, message=FALSE, warning=FALSE}
+library("randomForest")
+library("rsample")
+library("viridis")
+```
 
 ```{r base_table}
 data <- MASS::Boston
@@ -116,9 +125,81 @@ model_fits <- seq_len(searches) %>%
   )
 print(model_fits)
 ```
+```{r hide_for_later_use, include=FALSE}
+sum_ntree <- sum(model_fits$ntree)
+```
+
+The next big step in the process is to `nest` each hyperparameter pair into its own small 1x2 `tibble`. The philosophy is that each of these hyperparemeter pair `tibbles` acts as the nugget that we keep applying the `map()` function over to conduct this whole analysis! In the code below we simmply exclude the `id` column from the nesting and assign the name `params` to the new aggregated column of hyperparameters
+
+```{r nest_hyperparameters}
+model_fits <- model_fits %>%
+  nest(-id, .key = "params") 
+print(model_fits)
+```
+
+Now the real work starts. First we have three new helper functions.
+
+```{r helper_functions}
+# splits CV objects into test, train, and parameter pairs
+cv_helper <- function(data, params){
+  d <- data %>%
+    mutate(mtry  = params$mtry,
+           ntree = params$ntree,
+           train = map(splits, rsample::analysis),
+           test  = map(splits, rsample::assessment)) %>%
+    select(-splits)
+}
+# the main modeling helper. Trains and Tests RF model on each CV fold
+rf_helper  <- function(folds){ 
+  rf_model <- function(train,mtry,ntree,test){
+    xtest  <- dplyr::select(test,-medv)
+    ytest  <- test$medv
+    m1 <- randomForest(medv ~., data=train,mtry=mtry,ntree=ntree,
+                       xtest=xtest,ytest=ytest,keep.forest=TRUE)
+  }
+  # prediction function can go here and map in below if need be
+  m <- folds %>%
+    mutate(model = pmap(list(train,mtry,ntree,test),rf_model))
+}
+# Extracts test set MSE from RF Model and averages MSE from each ntree
+MSE_helper <- function(model){
+  err_helper <- function(rf){
+    mse <- mean(rf$test$mse)
+  }
+  m2 <- model %>%
+    mutate(mse = map_dbl(model, err_helper)) %>%
+    dplyr::select(mse)
+  mean(m2$mse)
+}
+```
+
+Once we have the data shaped andhelper functions built, we can start to map our analysis over each row. First I use the `vfold_cv()` function from the `rsample` package to create a cross-validation folds (K = `cv_folds`). The slight trick is that I do this first and put it in a `list` so that the folds of each row (and `params` pair) is the same splits of the data. This is critical if you want to compare outcomes across hyperparameter pairs. Otherwise, each `params` pair is executed on a different set of data... and that is not good.
+
+Next we use `map2()` to send two columns `splits` and `params` to the `cv_helper` function to divide the `split` object into `test` and `train` datasets, carrying over the hyperparameter pairs. Then the `tibble` in the `folds` column containg the `test`, `train`, and hyperparameter pair is sent to the `rf_helper` to fit the data on that hyperparameter pair for each of the folds in the CV split data sets. Noting that we save a step her because the `randomForest()` function allows you to not only train the model, but also test it at the same time! Supplying a `test` set of data and outcome results in the randomForest model object containing an out-of-sampe error rate for each model on each CV fold.
+
+Finally the `cv_folds` number of models for each row (hyperparameter set) is mapped to the final helper function (MSE_helper) to average the Mean Squared Error (MSE) for each `ntree` of each model for each `cv_folds`. This happens for each row in `model_fits` equating to `ntree` x `cv_folds` x `searches` quantity of out-of-sample prediction evaluations. In this case that is ``r sum_ntree*cv_folds*searches`` evaluations.
+
+```{r nonparllel_mapping}
+model_fits <- model_fits %>%
+   mutate(splits = list(rsample::vfold_cv(data,cv_folds)), # same resamples in each
+          folds  = map2(splits, params, cv_helper),
+          model  = map(folds, rf_helper),        # <- non-parallel version
+          mse    = map_dbl(model, MSE_helper)) 
+```
+
+```{r results1}
+mean(model_fits$mse)
+print(dplyr::select(model_fits, id, model, mse))
+```
 
 
+results...
 
+## Make it parallel
+
+```{r}
+library("future")
+```
 
 
 
