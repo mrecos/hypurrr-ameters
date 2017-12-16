@@ -1,0 +1,126 @@
+---
+title: "purrr_gridsearch_blog.Rmd"
+author: "MDH"
+date: "12/13/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+I have had a thing lately with aggregating analyses into sequences of `purrr::map()` function calls and dense `tibbles`. If I see a loop - `map()` it. Have many outputs - well then put it in a `tibble`. Better yet, apply a sequence of functions over multiple model outputs, put them in a `tibble` and `map()` it! That is the basic approach I take here for modeling over a sequence of random hyperparameters; plus using `future` to do it in parallel. The idea for the code in this post came after an unsettled night of dreaming in the combinatoric magnitude of repeated K-folds CV over the hyperparameters for a multilayer perceptron. anyway...
+
+"Correlated Hyperparameters"" - Zoroaster Clavis Artis 1738 (inspired by @vboykis #devart)
+![](https://upload.wikimedia.org/wikipedia/commons/c/c0/ClavisArtis.Ms-2-27.Hortis.V3.034.jpg)
+
+
+This post is based on the hyperparameter grid search example, but I am going to use it as a platform to go over some of the cool features of `purrr` that make it possible to put such an analysis in this `tibble` format.  By no means a primer on `purrr`, the text will hopefully make some connections between the ideas of `list-columns`, `purrr::map()` functions, and `purrr:nest()` to show off what I interpret as the Tidy-Purrr philosophy. The part about using `future` to parallelize this routine is presented towards the end.  If already know this stuff, then skip to the code examples at the end or see THIS REPO#%#%#%#%#.  However, if you are purrr-curious, give it a read and check out some of the amazing tutorials out in the wild.
+
+
+*   __Objective__: Demonstrate an approach to randomly searching over model hyperparameters in parallel storing the results in a tibble.
+*   __Pre-knowledge__: Beginner to Moderate R; introductory modeling concepts; Tidy/Purrr framework
+*   __Software__: `R 3.4.0`, `tidyverse 1.2.1` (contains `tibble`, `dplyr`, `purrr`, `tidyr`, and `ggplot2`), `rsample 0.0.2`, `future 1.6.2`
+
+
+
+![](https://dl.dropboxusercontent.com/s/9b46qii7e75n92r/heart_bar1.png?dl=0)
+
+
+
+## Optimizing hyperparameters
+
+Hyperparameters are the tuning knobs for statistical/machine learning models. Basic models such as linear regression and GLM family models don't typically have hyperparameters, but once you get into Ridge or Lasso regression and GAMs there are parts of the model that need tuning (e.g. penalties or smoothers). Methods such as Random Forest or Gradient Boosting, Neural Networks, and Gaussian Processes have even more tuning knobs and even less theory for how they should be set. Setting such hyperparameters can be a dark-art and require experience and a bit of faith. However, even with experience in these matters it is rarely clear what combination of hyperparameters will lead to the best out-of-sample prediction on a given dataset. For this reason, it is often desired to test over a range of hyperparameters to find the best pairing. 
+
+The major issue of searching hyperparameters is the computational cost of searching a wide range of values to avoid local minima, testing over a fine enough grid to avoid over-shooting minima, and estimating variance via bootstrapping or K-folds CV. For example, a model with two hyperparameters tested over K = 10 folds CV for the values of each hyperparameter equates to 10 x 10 x 10 = 1,000 models! A third hyperparameter is another order of magnitude. Needless to say, this adds up fast. While a handful or algorithms and approaches have been developed to deal with this, the most common method is a basic grid-search or a random search across a sequence of hyperparameters. In this example, I employ a random search, but changing it to grid-search is simple.
+
+
+![](http://purrr.tidyverse.org/logo.png)
+
+
+## `Purrr::map()` and `tibble` 
+
+To preform hyperparameter search in a table, we can use the power of [`purrr`](http://purrr.tidyverse.org/) to do the heavy lifting and the [`tibble`](http://tibble.tidyverse.org/) to store the results/computations. The `tibble` is much like the basic `data.frame` in many respects, but differing in some key ways that allow for the `purrr` idiom to really flourish. One of those differences is that the `tibble` is very accommodating to dealing with all sorts of data stuffed into the grid cells. Often referred to a list-column, this behavior allows the each cell in a column to store lists, which themselves can contain any R data structure like lists, data,frames, tibbles, data, functions, etc... The toy example below shows how typical numeric and character data are stored in `Col_A` and `Col_B` while `Col_C` is a list with three elements, one for each row, containing the character vector `"X","Y","Z"`. Finally, `Col_D` is a list that contains three elements (rows), each of which is also a list and contains three elements that are the XYZ character vector. Recursion!
+
+```{r list_column, message=FALSE, warning=FALSE}
+library("tidyverse")
+list_col_example <- tibble(Col_A = c(1,2,3),
+                           Col_B = c("A","B","C"),
+                           Col_C = list(c("X","Y","Z")),
+                           Col_D = list(Col_C))
+print(list_col_example)
+```
+
+
+This recursive storage is really powerful! In this example, we take advantage of the list-column to store hyperparameter values that we then loop over to create and evaluate numerous models. Specifically, we will use the family of `map()` functions in `purrr` to iterate functions over elements of a list-column. If you are familiar with the world of `*apply()` functions, this is similar, but executed in a much more consistent manner and plays very well with other components of the [Tidyverse](https://www.tidyverse.org/). If you don't know much about `apply()` or `map()`, check out the [great tutorials](https://jennybc.github.io/purrr-tutorial/index.html) by [Jenny Bryan](https://twitter.com/JennyBryan) 
+to see functional programming in action. Here are two examples of using `map()`. First, `map()` is used to apply the `paste()` function to the list-column `Col_C` along with the added argument of `collapse = ''`. The output, `Map_Col_1` is itself a list of character vectors just like `Col_C`. However, if we know the data type of the desired output, we can apply a type specific `map_chr()` function to cast the output to a character string in `Map_Col_2`. Pretty cool!
+
+
+```{r map_example}
+list_col_example <- list_col_example %>%
+  mutate(Map_Col_1 = map(Col_C, paste, collapse = ''),
+         Map_Col_2 = map_chr(Col_C, paste, collapse = ''))
+print(list_col_example) 
+```
+
+
+![](http://tidyr.tidyverse.org/logo.png)
+
+## Nesting a `tibble` with `tidyr::nest()`
+
+The final piece of learning that builds up to the hyperparameter example is using the `nest()` function from the `tidyr` package to collapse table columns into list columns. This is similar in concept to grouping rows in a table based on values and returns a table of the groups within a new column. An example of how this works is well illustrated with the classic `iris` dataset. In `iris` you have four columns plant part measurments and one column with the iris flower species name; `Setosa`, `Versicolor`, and `Virginica`. There are 50 rows for each species. To collapse the data.frame into a `tibble` with one row for each species and one list-column containing a dataframe on the 50 examples of that species, you simply use the `nest()` function and tell it what column _not_ to include in the group; here it is `Species`
+
+```{r nest_example}
+head(iris)
+
+nest_example <- iris %>%
+  nest(-Species) %>%
+  as.tibble()
+print(nest_example)
+```
+
+cite: https://www.shareicon.net/plant-iris-blossom-nature-bloom-spring-floral-717702
+![](https://www.shareicon.net/data/128x128/2016/02/12/717702_plant_512x512.png)
+
+To close the loop on how you might use a nested `tibble` with `map()` for modeling, we can use the example above to show how you can run models on groups. We will use a simple linear regression wth `lm()` in a small helper function to model each species `Sepal.Length` by the other three measurments. (Note: this is just an example and modeling groups without pooling is probably a bad idea.). The use of a helper function is a really handy way to write a minimal bit of code that acts as a go-between from `map()` to your intended function. The very next line after the model is fit, we use `map_dbl()` to apply a root mean squared errors (RMSE) on the model fit to return a numeric value. The result of this is a `tibble` with a list-column names `model` that contians the entire `lm()` fit object and another column with a goodness-of-fit metric.
+
+```{r iris_classification}
+
+lm_helper <- function(data){
+  lm1 <- lm(Sepal.Length ~ ., data = data)
+}
+
+nest_example2 <- nest_example %>%
+  mutate(model = map(data, lm_helper),
+         RMSE  = map_dbl(model, ~ sqrt(mean((.$residuals)^2))))
+print(nest_example2)
+```
+
+
+## Mapping over Hyperparameters
+
+
+show base table, then quickly go through maps.
+
+```{r base_table}
+data <- MASS::Boston
+searches <- 5 # number of random grid searches
+max_trees <- 500
+cv_folds <- 5
+
+model_fits <- seq_len(searches) %>%
+  tibble(
+    id = .,
+    ntree = sample(c(1,seq(25,max_trees,25)),length(id),replace = T),
+    mtry  = sample(seq(1,ncol(data)-1,1),length(id),replace = T)
+  )
+print(model_fits)
+```
+
+
+
+
+
+
+
+
