@@ -113,7 +113,7 @@ library("viridis")
 
 ```{r base_table}
 data <- MASS::Boston
-searches <- 5 # number of random grid searches
+searches <- 10 # number of random grid searches
 max_trees <- 500
 cv_folds <- 5
 
@@ -173,27 +173,81 @@ MSE_helper <- function(model){
 }
 ```
 
-Once we have the data shaped andhelper functions built, we can start to map our analysis over each row. First I use the `vfold_cv()` function from the `rsample` package to create a cross-validation folds (K = `cv_folds`). The slight trick is that I do this first and put it in a `list` so that the folds of each row (and `params` pair) is the same splits of the data. This is critical if you want to compare outcomes across hyperparameter pairs. Otherwise, each `params` pair is executed on a different set of data... and that is not good.
-
-Next we use `map2()` to send two columns `splits` and `params` to the `cv_helper` function to divide the `split` object into `test` and `train` datasets, carrying over the hyperparameter pairs. Then the `tibble` in the `folds` column containg the `test`, `train`, and hyperparameter pair is sent to the `rf_helper` to fit the data on that hyperparameter pair for each of the folds in the CV split data sets. Noting that we save a step her because the `randomForest()` function allows you to not only train the model, but also test it at the same time! Supplying a `test` set of data and outcome results in the randomForest model object containing an out-of-sampe error rate for each model on each CV fold.
-
-Finally the `cv_folds` number of models for each row (hyperparameter set) is mapped to the final helper function (MSE_helper) to average the Mean Squared Error (MSE) for each `ntree` of each model for each `cv_folds`. This happens for each row in `model_fits` equating to `ntree` x `cv_folds` x `searches` quantity of out-of-sample prediction evaluations. In this case that is ``r sum_ntree*cv_folds*searches`` evaluations.
+The helper functions are a great way to abstract a bit of the specifics of bridging to other functions. For example, `MSE_helper()` function could probably be squeezed into the call to `map()`, but it would be a little bit messy because you would have to put a `map()` within a `map()`. In my mind, it makes sense to write a small function to take care of that.  The other helper functions do various things, but I try to stick with each function only doing one thing and pertaining to one `map()` function. To write a bloated helper function that takes care of a bunch of steps sort of defeats the purpose of mapping over the analysis. Below is the `map()` sequence. Each step is detailed following the code block.
 
 ```{r nonparllel_mapping}
 model_fits <- model_fits %>%
    mutate(splits = list(rsample::vfold_cv(data,cv_folds)), # same resamples in each
-          folds  = map2(splits, params, cv_helper),
-          model  = map(folds, rf_helper),        # <- non-parallel version
-          mse    = map_dbl(model, MSE_helper)) 
+          folds  = map2(splits, params, cv_helper),        # split folds into test/train
+          model  = map(folds, rf_helper),                  # fit RF and test
+          mse    = map_dbl(model, MSE_helper))             # extract out-of-fold MSE
 ```
 
-```{r results1}
+
+#### Split the data into CV folds with `rsample`
+Once we have the data shaped and helper functions built, we can start to map our analysis over each row. First I use the `vfold_cv()` function from the `rsample` package to create a cross-validation folds (K = `cv_folds`). The slight trick is that I do this first and put it in a `list` so that the folds of each row (and `params` pair) is the same splits of the data. This is critical if you want to compare outcomes across hyperparameter pairs. Otherwise, each `params` pair is executed on a different set of data... and that is not good.
+
+
+#### Extract test and train data from Splits
+Next we use `map2()` to send two columns `splits` and `params` to the `cv_helper` function to divide the `split` object into `test` and `train` datasets, carrying over the hyperparameter pairs. An important note here is that Max Kuhn at Rstudio has been busy at work with the `caret`, `rsample`, and `recipe` packages to streamline all parts of this process. You could utilize these pacakges more effectivley in this pipeline. I did it this way to expose the modeling steps.
+
+
+#### Fit and test CV folds with `RandomForest`
+Then the `tibble` in the `folds` column containg the `test`, `train`, and hyperparameter pair is sent to the `rf_helper` to fit the data on that hyperparameter pair for each of the folds in the CV split data sets. Noting that we save a step her because the `randomForest()` function allows you to not only train the model, but also test it at the same time! Supplying a `test` set of data and outcome results in the randomForest model object containing an out-of-sampe error rate for each model on each CV fold.
+
+
+#### Extract Out-of-sample Mean Squared Error from model fit
+Finally the `cv_folds` number of models for each row (hyperparameter set) is mapped to the final helper function (MSE_helper) to average the Mean Squared Error (MSE) for each `ntree` of each model for each `cv_folds`. This happens for each row in `model_fits` equating to `ntree` x `cv_folds` x `searches` quantity of out-of-sample prediction evaluations. In this case that is ``r sum_ntree*cv_folds*searches`` evaluations.
+
+```{r mse}
 mean(model_fits$mse)
-print(dplyr::select(model_fits, id, model, mse))
+```
+```{r hide_mse_prep, include=FALSE}
+# displayed in table below
+mse_pairs <- model_fits %>%
+      mutate(mtry   = map_dbl(params, "mtry"),
+             ntree  = map_dbl(params, "ntree"),
+             mse    = round(mse,2)) %>%
+        dplyr::select(id, mtry, ntree, mse)
 ```
 
+So this example leads to an average MSE of ``r round(mean(model_fits$mse),2)`` across all random hyperparameter selections. This is about ``r paste0("$",round(sqrt(mean(model_fits$mse)),2)*1000)`` of median owner-occupied home value. Below we tabulte the mean out-of-fold mse for each hyperparameter pair. The best pair of `ntree` = ``r filter(mse_pairs, mse == min(mse))$ntree`` and `mtry` = ``r filter(mse_pairs, mse == min(mse))$mtry`` for an error of ``r paste0("$",round(sqrt(filter(mse_pairs, mse == min(mse))$mse),2)*1000)``.
 
-results...
+Selecting only the `mtry`, `ntree`, & `mse` columns for display.
+```{r results1}
+print(mse_pairs)
+```
+
+#### Plotting hyperparameter grid
+The thing about hyperparameters is they are corellated. There is no one best `mtry` and an independently best `ntree`. This is the reason why there is so much attention paid to various ways to search for the best hyperparameter set and why there is little common wisdom about what sets will be best for a given dataset; it is a mutli-dimensional optimization task. One good way to get a sense of this is to plot the hyperparameters on a grid and symbolize the magnitude of your metric or loss/cost function for each evaulated hyperparameter pair. Here is one possible way to do so.
+
+```{r plot non_parallel}
+# reshape for plotting
+MSE_plot <- model_fits %>%
+  mutate(mtry   = map_dbl(params, "mtry"),
+         ntree  = map_dbl(params, "ntree")) %>%
+  dplyr::select(mtry, ntree, mse) %>%
+  group_by(mtry, ntree) %>%
+  summarise(mse = mean(mse))
+# plot results
+ggplot() +
+  geom_point(data = filter(MSE_plot, mse == min(MSE_plot$mse)),
+             aes(x=mtry,y=ntree), color = "red", 
+             size = 8, shape = 15, alpha = 0.85) +
+  geom_point(data = MSE_plot, aes(x=mtry,y=ntree, size = mse, color = mse)) +
+  scale_size(range = c(1,10)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n=ncol(data)-1)) +
+  scale_color_viridis() +
+  labs(title = "Random Grid Search of RandomForest Hyperparameters",
+       subtitle = paste0("Mean MSE from ", cv_folds, "-fold CV over ",
+                         searches, " parameter pairs"),
+       caption = "(medv ~ ., data = Boston)") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Iosevka")
+  )
+```
+
 
 ## Make it parallel
 
