@@ -72,7 +72,7 @@ print(list_col_example)
 
 ## Nesting a `tibble` with `tidyr::nest()`
 
-The final piece of learning that builds up to the hyperparameter example is using the `nest()` function from the `tidyr` package to collapse table columns into list columns. This is similar in concept to grouping rows in a table based on values and returns a table of the groups within a new column. An example of how this works is well illustrated with the classic `iris` dataset. In `iris` you have four columns plant part measurments and one column with the iris flower species name; `Setosa`, `Versicolor`, and `Virginica`. There are 50 rows for each species. To collapse the data.frame into a `tibble` with one row for each species and one list-column containing a dataframe on the 50 examples of that species, you simply use the `nest()` function and tell it what column _not_ to include in the group; here it is `Species`
+The final piece of learning that builds up to the hyperparameter example is using the `nest()` function from the `tidyr` package to collapse table columns into list columns. This is similar in concept to grouping rows in a table based on values and returns a table of the groups within a new column. An example of how this works is well illustrated with the classic `iris` dataset. In `iris` you have four columns plant part measurements and one column with the iris flower species name; `Setosa`, `Versicolor`, and `Virginica`. There are 50 rows for each species. To collapse the data.frame into a `tibble` with one row for each species and one list-column containing a dataframe on the 50 examples of that species, you simply use the `nest()` function and tell it what column _not_ to include in the group; here it is `Species`
 
 ```{r nest_example}
 head(iris)
@@ -86,7 +86,7 @@ print(nest_example)
 cite: https://www.shareicon.net/plant-iris-blossom-nature-bloom-spring-floral-717702
 ![](https://www.shareicon.net/data/128x128/2016/02/12/717702_plant_512x512.png)
 
-To close the loop on how you might use a nested `tibble` with `map()` for modeling, we can use the example above to show how you can run models on groups. We will use a simple linear regression wth `lm()` in a small helper function to model each species `Sepal.Length` by the other three measurments. (Note: this is just an example and modeling groups without pooling is probably a bad idea.). The use of a helper function is a really handy way to write a minimal bit of code that acts as a go-between from `map()` to your intended function. The very next line after the model is fit, we use `map_dbl()` to apply a root mean squared errors (RMSE) on the model fit to return a numeric value. The result of this is a `tibble` with a list-column names `model` that contians the entire `lm()` fit object and another column with a goodness-of-fit metric.
+To close the loop on how you might use a nested `tibble` with `map()` for modeling, we can use the example above to show how you can run models on groups. We will use a simple linear regression with `lm()` in a small helper function to model each species `Sepal.Length` by the other three measurements. (Note: this is just an example and modeling groups without pooling is probably a bad idea.). The use of a helper function is a really handy way to write a minimal bit of code that acts as a go-between from `map()` to your intended function. The very next line after the model is fit, we use `map_dbl()` to apply a root mean squared errors (RMSE) on the model fit to return a numeric value. The result of this is a `tibble` with a list-column names `model` that contains the entire `lm()` fit object and another column with a goodness-of-fit metric.
 
 ```{r iris_classification}
 
@@ -103,7 +103,9 @@ print(nest_example2)
 
 ## Mapping over Hypurrr-ameters
 
-THe basis for the experiment in hyperparameter search is a tibble with a series of rows representignn random draws. In this case we are interested in mapping over the hyperparameters of `ntree` and `mtry`. It really doesn't matter much what these names mean as this can be applied to any model & hyperparameters. Check here to learn more about random forest check out [this post](https://machinelearningmastery.com/tune-machine-learning-algorithms-in-r/). Suffice to say, these are two correlated settings of the randomforest algorithm that can have a big impact on performance. In order to build the basic table of hyperparameters to test over, we start a sequence of length `searches` and do random samples from sequences of `ntree` and `mtry`. The part of `ncol(data)-1` simpy returns the maximum number of predictor columns. See below code resulting in five rows of randomly selected pairs of `mtry` and `ntree`.
+The basis for the experiment in hyperparameter search is a tibble with a series of rows representing random draws. In this case we are interested in mapping over the hyperparameters of `ntree` and `mtry`. It really doesn't matter much what these names mean as this can be applied to any model & hyperparameters. Check here to learn more about random forest check out [this post](https://machinelearningmastery.com/tune-machine-learning-algorithms-in-r/). Suffice to say, these are two correlated settings of the randomforest algorithm that can have a big impact on performance. In order to build the basic table of hyperparameters to test over, we start a sequence of length `searches` and do random samples from sequences of `ntree` and `mtry`. The part of `ncol(data)-1` simply returns the maximum number of predictor columns. See below code resulting in five rows of randomly selected pairs of `mtry` and `ntree`.
+
+__Quick Warning:__ This post uses the Random Forest algorithm is these examples. I picked RF because it is very common, an accurate & tunable model, and it has the built in test function so I could train and test at the same time. The downside is that RF is a __memory hog__! Especially here where I need to keep each tree to get the benefit of test set prediction and store it in the `tibble`. Running the below code over 200 hyperparameters pairs maxed out 32 Gb of ram. If you have a basic laptop, try 5 to 25 hyperparameter pairs to get the idea of what is going.
 
 ```{r packages, message=FALSE, warning=FALSE}
 library("randomForest")
@@ -129,7 +131,7 @@ print(model_fits)
 sum_ntree <- sum(model_fits$ntree)
 ```
 
-The next big step in the process is to `nest` each hyperparameter pair into its own small 1x2 `tibble`. The philosophy is that each of these hyperparemeter pair `tibbles` acts as the nugget that we keep applying the `map()` function over to conduct this whole analysis! In the code below we simmply exclude the `id` column from the nesting and assign the name `params` to the new aggregated column of hyperparameters
+The next big step in the process is to `nest` each hyperparameter pair into its own small 1x2 `tibble`. The philosophy is that each of these hyperparameter pair `tibbles` acts as the nugget that we keep applying the `map()` function over to conduct this whole analysis! In the code below we simply exclude the `id` column from the nesting and assign the name `params` to the new aggregated column of hyperparameters
 
 ```{r nest_hyperparameters}
 model_fits <- model_fits %>%
@@ -189,11 +191,11 @@ Once we have the data shaped and helper functions built, we can start to map our
 
 
 #### Extract test and train data from Splits
-Next we use `map2()` to send two columns `splits` and `params` to the `cv_helper` function to divide the `split` object into `test` and `train` datasets, carrying over the hyperparameter pairs. An important note here is that Max Kuhn at Rstudio has been busy at work with the `caret`, `rsample`, and `recipe` packages to streamline all parts of this process. You could utilize these pacakges more effectivley in this pipeline. I did it this way to expose the modeling steps.
+Next we use `map2()` to send two columns `splits` and `params` to the `cv_helper` function to divide the `split` object into `test` and `train` datasets, carrying over the hyperparameter pairs. An important note here is that Max Kuhn at Rstudio has been busy at work with the `caret`, `rsample`, and `recipe` packages to streamline all parts of this process. You could utilize these packages more effectively in this pipeline. I did it this way to expose the modeling steps.
 
 
 #### Fit and test CV folds with `RandomForest`
-Then the `tibble` in the `folds` column containg the `test`, `train`, and hyperparameter pair is sent to the `rf_helper` to fit the data on that hyperparameter pair for each of the folds in the CV split data sets. Noting that we save a step her because the `randomForest()` function allows you to not only train the model, but also test it at the same time! Supplying a `test` set of data and outcome results in the randomForest model object containing an out-of-sampe error rate for each model on each CV fold.
+Then the `tibble` in the `folds` column containing the `test`, `train`, and hyperparameter pair is sent to the `rf_helper` to fit the data on that hyperparameter pair for each of the folds in the CV split data sets. Noting that we save a step her because the `randomForest()` function allows you to not only train the model, but also test it at the same time! Supplying a `test` set of data and outcome results in the randomForest model object containing an out-of-sample error rate for each model on each CV fold.
 
 
 #### Extract Out-of-sample Mean Squared Error from model fit
@@ -211,7 +213,7 @@ mse_pairs <- model_fits %>%
         dplyr::select(id, mtry, ntree, mse)
 ```
 
-So this example leads to an average MSE of ``r round(mean(model_fits$mse),2)`` across all random hyperparameter selections. This is about ``r paste0("$",round(sqrt(mean(model_fits$mse)),2)*1000)`` of median owner-occupied home value. Below we tabulte the mean out-of-fold mse for each hyperparameter pair. The best pair of `ntree` = ``r filter(mse_pairs, mse == min(mse))$ntree`` and `mtry` = ``r filter(mse_pairs, mse == min(mse))$mtry`` for an error of ``r paste0("$",round(sqrt(filter(mse_pairs, mse == min(mse))$mse),2)*1000)``.
+So this example leads to an average MSE of ``r round(mean(model_fits$mse),2)`` across all random hyperparameter selections. This is about ``r paste0("$",round(sqrt(mean(model_fits$mse)),2)*1000)`` of median owner-occupied home value. Below we tabulate the mean out-of-fold mse for each hyperparameter pair. The best pair of `ntree` = ``r filter(mse_pairs, mse == min(mse))$ntree`` and `mtry` = ``r filter(mse_pairs, mse == min(mse))$mtry`` for an error of ``r paste0("$",round(sqrt(filter(mse_pairs, mse == min(mse))$mse),2)*1000)``.
 
 Selecting only the `mtry`, `ntree`, & `mse` columns for display.
 ```{r results1}
@@ -219,9 +221,9 @@ print(mse_pairs)
 ```
 
 #### Plotting hyperparameter grid
-The thing about hyperparameters is they are corellated. There is no one best `mtry` and an independently best `ntree`. This is the reason why there is so much attention paid to various ways to search for the best hyperparameter set and why there is little common wisdom about what sets will be best for a given dataset; it is a mutli-dimensional optimization task. One good way to get a sense of this is to plot the hyperparameters on a grid and symbolize the magnitude of your metric or loss/cost function for each evaulated hyperparameter pair. Here is one possible way to do so.
+The thing about hyperparameters is they are correlated. There is no one best `mtry` and an independently best `ntree`. This is the reason why there is so much attention paid to various ways to search for the best hyperparameter set and why there is little common wisdom about what sets will be best for a given dataset; it is a mutli-dimensional optimization task. One good way to get a sense of this is to plot the hyperparameters on a grid and symbolize the magnitude of your metric or loss/cost function for each evaluated hyperparameter pair. Here is one possible way to do so.
 
-```{r plot non_parallel}
+```{r plot non_parallel, message=FALSE, warning=FALSE}
 # reshape for plotting
 MSE_plot <- model_fits %>%
   mutate(mtry   = map_dbl(params, "mtry"),
@@ -241,7 +243,7 @@ ggplot() +
   labs(title = "Random Grid Search of RandomForest Hyperparameters",
        subtitle = paste0("Mean MSE from ", cv_folds, "-fold CV over ",
                          searches, " parameter pairs"),
-       caption = "(medv ~ ., data = Boston)") +
+       caption = "(medv ~ ., data = Boston); Red square at minimum MSE") +
   theme_bw() +
   theme(
     text = element_text(family = "Iosevka")
@@ -249,13 +251,74 @@ ggplot() +
 ```
 
 
-## Make it parallel
+As noted in the warning above, I do not recommend running this on more than 50 or some hyperparameter pairs unless you plan to wait a while and have more than 16Gb of available ram. If you are doing real science here, its worth the wait, but not for a code example in a blog post! Below is a plot of running this for 200 hyperparameter pairs if you are curious.
 
-```{r}
+![](https://dl.dropboxusercontent.com/s/e1qm3egx2a0f3zd/purr_grid_search_200.png?dl=0)
+
+
+## Parallelize with `future`!!!
+
+Mapping over the rows of a `tibble` is an interesting way to execute a number of similar functions in sequence.  However, since the evaluation of each hyperparameter pair is independent of each other, it makes the perfect scenario to parallelize the sequence. Fortunately, the `future` package by [Henrik Bengtsson](https://twitter.com/henrikbengtsson) gives us the ability to easily modify the `purrr::map()` code to take advantage of a parallel backend. I don't have the time or knowledge to give a formal introduction to the `future` package, but I can show you a quick way to use it. To read more about the `future` package check out [this vignette](https://cran.r-project.org/web/packages/future/vignettes/future-1-overview.html)
+
+The core idea of the `future` package is that it allows you to write code that will be evaluated in the future; hence the name. It is a bit like a queuing system that can use a bunch of different methods to queue and execute your code in a synchronous or asynchronous sequence that takes advantage of available computational resources. I know I am not doing justice here! The main part of setting up your code is to choose a `future::plan()`. The `plan` is the method by which you plan to queue code and execute it as cores become available. The two `plans` that I have used are `multisession` and `multiprocess`. The former is available on all platforms and creates a bunch of background R sessions to take up the work. The latter is a bit more like traditional multicore parallelization and uses the current R session to execute everything. I will use `multisession` here.
+
+```{r future_library, message=FALSE, warning=FALSE}
 library("future")
+future::plan(multisession) # <- setup parallel
+
+```
+
+If you get even a little into the [future intro vignette](https://cran.r-project.org/web/packages/future/vignettes/future-1-overview.html), you will see that there is a bit of new syntax used to setup code for parallel evaluation. Most notably is the `%<-%` assignment operator. However, since we are deploying this into an existing `purrr::map()` sequence, we will use a different approach to send functions to the queue. The code block below is nearly identical except for changes to the three lines with comments. The three main changes are:
+
+1.    Start a new `mutate()` call after the folds are created
+2.    The `map()` function is now wrapped in a `future::future()` call; `~future::future(rf_helper(.x))`
+3.    Another new `mutate()` call is made to collected the values from the `future` R sessions and continue on to the mse error extraction.
+
+So that's it! The hardest part was starting a `mutate()` call and the little but of syntax to wrap the function in the `map()` call into a `future::future()` call. Note, I use `future::future()` instead of just `future()` because I think being explicit about the package/environment is go, but either will do. Also, within the `future()` wrapped call to `rf_helper()` and `future::value()` I need to include the `.x` as the place holder for the data that is the first argument in the `map()` function; that is `folds` and `model` respectively.
+
+
+```{r future_model_fits}
+model_fits <- seq_len(searches) %>%
+  tibble(id    = .,
+         ntree = sample(c(1,seq(25,max_trees,25)),length(id),replace = T),
+         mtry  = sample(seq(1,ncol(data)-1,1),length(id),replace = T)) %>%
+  nest(-id, .key = "params") %>%
+  mutate(folds  = list(rsample::vfold_cv(data,cv_folds)),
+         folds  = map2(folds, params, cv_helper)) %>%             # <- start new mutate()
+  mutate(model  = map(folds, ~future::future(rf_helper(.x)))) %>% # <- send rf_helper call to queue
+  mutate(model  = map(model, ~future::value(.x)),                 # <- collect the values of rf_helper
+         mse    = map_dbl(model, MSE_helper))
 ```
 
 
+After that fires off on all cylinders, the `model_fits` `tibble` is the same as the non-parallel version and the plot function is identical. I won't guarantee that given your system, model, ramm that this will be faster; with randomforest memory is usually the bottleneck.  However, when I did some tests across a few hundred hyperparameter evaluations, I saw a approximate 14% decrease in execution time.
+
+```{r plot parallel, echo=FALSE, message=FALSE, warning=FALSE}
+# reshape for plotting
+MSE_plot <- model_fits %>%
+  mutate(mtry   = map_dbl(params, "mtry"),
+         ntree  = map_dbl(params, "ntree")) %>%
+  dplyr::select(mtry, ntree, mse) %>%
+  group_by(mtry, ntree) %>%
+  summarise(mse = mean(mse))
+# plot results
+ggplot() +
+  geom_point(data = filter(MSE_plot, mse == min(MSE_plot$mse)),
+             aes(x=mtry,y=ntree), color = "red", 
+             size = 8, shape = 15, alpha = 0.85) +
+  geom_point(data = MSE_plot, aes(x=mtry,y=ntree, size = mse, color = mse)) +
+  scale_size(range = c(1,10)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n=ncol(data)-1)) +
+  scale_color_viridis() +
+  labs(title = "Random Grid Search of RandomForest Hyperparameters",
+       subtitle = paste0("Mean MSE from ", cv_folds, "-fold CV over ",
+                         searches, " parameter pairs"),
+       caption = "(medv ~ ., data = Boston); Red square at minimum MSE") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Iosevka")
+  )
+```
 
 
-
+So that's it! Let your mind run wild about the sort of models/simulations/experiments that you can run in parallel while mapping across a table of values. The result is an incredibly readable and super compact data structure. There is something satisfying (or perhaps insane...) about completing an entire analysis from data ingest, clean-up, modeling, and inference in a short series of `purrr::map()` calls and then seeing the entire process stored in one table. A purrr-fect way to tidy up your code!
