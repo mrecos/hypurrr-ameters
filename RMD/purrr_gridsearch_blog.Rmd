@@ -9,7 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 options(scipen = 999) # disable scientific notation
 ```
-# Hypurrr-ameter Search with Purrr and Future
+# Hypurrr-ameter Grid Search with Purrr and Future
+
 
 #### See executable notebook of this post at this [Github repo](https://github.com/mrecos/hypurrr-ameters)!
 
@@ -19,7 +20,7 @@ I have had a thing lately with aggregating analyses into sequences of `purrr::ma
 ![](https://upload.wikimedia.org/wikipedia/commons/c/c0/ClavisArtis.Ms-2-27.Hortis.V3.034.jpg)
 
 
-This post is based on the hyperparameter grid search example, but I am going to use it as a platform to go over some of the cool features of `purrr` that make it possible to put such an analysis in this `tibble` format.  Further, I hope this post gives people some examples that make the idea of `purrr` "click"; I know it took me some time to get there. By no means a primer on `purrr`, the text will hopefully make some connections between the ideas of `list-columns`, `purrr::map()` functions, and `purrr:nest()` to show off what I interpret as the Tidy-Purrr philosophy. The part about using `future` to parallelize this routine is presented towards the end.  If already know this stuff, then skip to the code examples at the end or see THIS REPO#%#%#%#%#.  However, if you are purrr-curious, give it a read and check out some of the amazing tutorials out in the wild.
+This post is based on the hyperparameter grid search example, but I am going to use it as a platform to go over some of the cool features of `purrr` that make it possible to put such an analysis in this `tibble` format.  Further, I hope this post gives people some examples that make the idea of `purrr` "click"; I know it took me some time to get there. By no means a primer on `purrr`, the text will hopefully make some connections between the ideas of `list-columns`, `purrr::map()` functions, and `purrr:nest()` to show off what I interpret as the Tidy-Purrr philosophy. The part about using `future` to parallelize this routine is presented towards the end.  If already know this stuff, then skip to the code examples at the end or see [this repo](https://github.com/mrecos/hypurrr-ameters).  However, if you are purrr-curious, give it a read and check out some of the amazing tutorials out in the wild. If you want to interact with the code and this `Rmd` file, head over to [this Github repo](https://github.com/mrecos/hypurrr-ameters) where you can launch an instance of Rstudio server and execute the code!
 
 
 *   __Objective__: Demonstrate an approach to randomly searching over model hyperparameters in parallel storing the results in a tibble.
@@ -42,7 +43,7 @@ The major issue of searching hyperparameters is the computational cost of search
 ![](http://purrr.tidyverse.org/logo.png)
 
 
-## `Purrr::map()` and `tibble` 
+## Purrr::map() and tibble
 
 To preform hyperparameter search in a table, we can use the power of [`purrr`](http://purrr.tidyverse.org/) to do the heavy lifting and the [`tibble`](http://tibble.tidyverse.org/) to store the results/computations. The `tibble` is much like the basic `data.frame` in many respects, but differing in some key ways that allow for the `purrr` idiom to really flourish. One of those differences is that the `tibble` is very accommodating to dealing with all sorts of data stuffed into the grid cells. Often referred to a list-column, this behavior allows the each cell in a column to store lists, which themselves can contain any R data structure like lists, data,frames, tibbles, data, functions, etc... The toy example below shows how typical numeric and character data are stored in `Col_A` and `Col_B` while `Col_C` is a list with three elements, one for each row, containing the character vector `"X","Y","Z"`. Finally, `Col_D` is a list that contains three elements (rows), each of which is also a list and contains three elements that are the XYZ character vector. Recursion!
 
@@ -70,7 +71,7 @@ print(list_col_example)
 
 ![](http://tidyr.tidyverse.org/logo.png)
 
-## Nesting a `tibble` with `tidyr::nest()`
+## Nesting a tibble with tidyr::nest()
 
 The final piece of learning that builds up to the hyperparameter example is using the `nest()` function from the `tidyr` package to collapse table columns into list columns. This is similar in concept to grouping rows in a table based on values and returns a table of the groups within a new column. An example of how this works is well illustrated with the classic `iris` dataset. In `iris` you have four columns plant part measurements and one column with the iris flower species name; `Setosa`, `Versicolor`, and `Virginica`. There are 50 rows for each species. To collapse the data.frame into a `tibble` with one row for each species and one list-column containing a dataframe on the 50 examples of that species, you simply use the `nest()` function and tell it what column _not_ to include in the group; here it is `Species`
 
@@ -186,7 +187,7 @@ model_fits <- model_fits %>%
 ```
 
 
-#### Split the data into CV folds with `rsample`
+#### Split the data into CV folds with rsample::vfold_cv
 Once we have the data shaped and helper functions built, we can start to map our analysis over each row. First I use the `vfold_cv()` function from the `rsample` package to create a cross-validation folds (K = `cv_folds`). The slight trick is that I do this first and put it in a `list` so that the folds of each row (and `params` pair) is the same splits of the data. This is critical if you want to compare outcomes across hyperparameter pairs. Otherwise, each `params` pair is executed on a different set of data... and that is not good.
 
 
@@ -194,7 +195,7 @@ Once we have the data shaped and helper functions built, we can start to map our
 Next we use `map2()` to send two columns `splits` and `params` to the `cv_helper` function to divide the `split` object into `test` and `train` datasets, carrying over the hyperparameter pairs. An important note here is that Max Kuhn at Rstudio has been busy at work with the `caret`, `rsample`, and `recipe` packages to streamline all parts of this process. You could utilize these packages more effectively in this pipeline. I did it this way to expose the modeling steps.
 
 
-#### Fit and test CV folds with `RandomForest`
+#### Fit and test CV folds with RandomForest
 Then the `tibble` in the `folds` column containing the `test`, `train`, and hyperparameter pair is sent to the `rf_helper` to fit the data on that hyperparameter pair for each of the folds in the CV split data sets. Noting that we save a step her because the `randomForest()` function allows you to not only train the model, but also test it at the same time! Supplying a `test` set of data and outcome results in the randomForest model object containing an out-of-sample error rate for each model on each CV fold.
 
 
@@ -256,7 +257,7 @@ As noted in the warning above, I do not recommend running this on more than 50 o
 ![](https://dl.dropboxusercontent.com/s/e1qm3egx2a0f3zd/purr_grid_search_200.png?dl=0)
 
 
-## Parallelize with `future`!!!
+## Parallelize with future package!!!
 
 Mapping over the rows of a `tibble` is an interesting way to execute a number of similar functions in sequence.  However, since the evaluation of each hyperparameter pair is independent of each other, it makes the perfect scenario to parallelize the sequence. Fortunately, the `future` package by [Henrik Bengtsson](https://twitter.com/henrikbengtsson) gives us the ability to easily modify the `purrr::map()` code to take advantage of a parallel backend. I don't have the time or knowledge to give a formal introduction to the `future` package, but I can show you a quick way to use it. To read more about the `future` package check out [this vignette](https://cran.r-project.org/web/packages/future/vignettes/future-1-overview.html)
 
