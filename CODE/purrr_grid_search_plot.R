@@ -1,10 +1,8 @@
 ### ------- Load Packages ---------- ###
-library("purrr")
+library("tidyverse")
 library("future")
-library("dplyr")
 library("randomForest")
 library("rsample")
-library("ggplot2")
 library("viridis")
 ### ------- Helper Functions for map() ---------- ###
 # breaks CV splits into train (analysis) and test (assessmnet) sets
@@ -136,7 +134,7 @@ rf_pred <- function(data, model){
   d <- rsample::assessment(data$splits[[1]])
   pred <- predict(model, newdata = d)
 }
-xx <- seq(1:10) %>%
+model_fits_bootstrap <- seq(1:10) %>%
   tibble(
     id = .,
     ntree = sample(seq(1,500,25),length(id),replace = T),
