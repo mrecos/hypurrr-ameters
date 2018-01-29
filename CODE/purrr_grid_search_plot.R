@@ -81,7 +81,6 @@ ggplot() +
     text = element_text(family = "Iosevka")
   )
 
-
 ### -------------------- START parallel version --------------- ###
 future::plan(multisession) # <- setup parallel backend
 # Fit and evaluate all grid searches
