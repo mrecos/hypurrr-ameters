@@ -10,11 +10,6 @@ This post is based on the hyperparameter grid search example, but I am going to 
 [Hypurrr-ameter Grid Search with Purrr and Future](https://matthewdharris.com/2017/12/18/hypurrr-ameter-grid-search-with-purrr-and-future/)
 
 ### Executable RStudio Binder
-[![Binder](https://dl.dropboxusercontent.com/s/aqbfp8dkp0iw4k9/launch_Rstudio.svg?dl=0)](https://mybinder.org/v2/gh/mrecos/hypurrr-ameters/master?filepath=RMD)
+[![Binder](https://dl.dropboxusercontent.com/s/aqbfp8dkp0iw4k9/launch_Rstudio.svg?dl=0)](https://mybinder.org/v2/gh/mrecos/hypurrr-ameters/master?urlpath=rstudio)
 
-Click the button above (into a new tab) to launch this repo into an Rstudio binder in your browser! After clicking the button, wait a moment for the [https://mybinder.org/](https://mybinder.org/) service to build this repo into a new binder. Once built, you will see a screen like that below. First click `New` on the left hand side, then click `Rstudio Session` from the drop-down list. This will open a new cloud based Rstudio session right in your browser. From there, you can click in the `Files` to the `RMD` folder and then click on the `purrr_gridsearch_blog.Rmd` to open the blog post markdown. Also, there is a strealined version of the main code example at `/CODE/purrr_grid_search_plot.R`. Run, edit, modify the code and have fun!
-
-
-![](binder_instructions_1.jpeg)
-
-
+Click the button above (into a new tab) to launch this repo into an Rstudio binder in your browser! After clicking the button, wait a moment for the [https://mybinder.org/](https://mybinder.org/) service to build this repo into a new binder. Once built, this will open a new cloud based Rstudio session right in your browser. From there, you can click in the `Files` to the `RMD` folder and then click on the `purrr_gridsearch_blog.Rmd` to open the blog post markdown. Also, there is a strealined version of the main code example at `/CODE/purrr_grid_search_plot.R`. Run, edit, modify the code and have fun!
